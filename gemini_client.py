@@ -61,23 +61,14 @@ class GeminiWorker(QThread):
                 timeout=30,
             )
 
-            if resp.status_code == 429:
-                # Free tier: 15 req/min. Wait 6 seconds and retry once.
-                import time
-                time.sleep(6)
-                resp = _requests.post(
-                    _API_URL,
-                    params={"key": self.api_key},
-                    json=payload,
-                    timeout=30,
-                )
-                if resp.status_code == 429:
-                    self.failed.emit(
-                        "Rate limit reached. Please wait a few seconds and try again."
-                    )
-                    return
             if not resp.ok:
-                self.failed.emit(f"API error {resp.status_code}: {resp.text[:200]}")
+                # Show the real Google error message for diagnosis
+                try:
+                    msg = resp.json().get("error", {}).get("message", resp.text[:300])
+                except Exception:
+                    msg = resp.text[:300]
+                self.failed.emit(f"API error {resp.status_code}: {msg}")
+                return
                 return
 
             text = (
