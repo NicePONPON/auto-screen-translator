@@ -1,8 +1,6 @@
 import sys
 import os
 
-# Point all SSL libraries at certifi's CA bundle.
-# Required for EasyOCR model downloads on Windows portable installs.
 try:
     import certifi
     os.environ['SSL_CERT_FILE']      = certifi.where()
@@ -10,17 +8,15 @@ try:
 except ImportError:
     pass
 
-# SetProcessDpiAwareness(1) = System DPI Aware.
-# Must be called before QApplication is constructed so Qt receives
-# physical pixel coordinates and no Windows virtualization is applied.
 if sys.platform == "win32":
     try:
         import ctypes
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
-        pass  # Non-fatal: older Windows or awareness already set
+        pass
 
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
 
 from settings import Settings
 from overlay import OverlayWindow
@@ -29,24 +25,39 @@ from toolbar import ToolbarWindow
 
 def main() -> None:
     app = QApplication(sys.argv)
-    app.setApplicationName("OCRTranslator")
-    # Keep process alive when both windows are hidden (e.g. overlay closed)
+    app.setApplicationName("AutoScreenTranslator")
     app.setQuitOnLastWindowClosed(False)
-    # Fusion looks clean on Windows across all DPI and theme settings
     app.setStyle("Fusion")
 
     settings = Settings()
     overlay  = OverlayWindow(settings)
     toolbar  = ToolbarWindow(settings, overlay)
 
-    # Default position: horizontally centered, 20px from the top of the screen
-    screen = QApplication.primaryScreen().geometry()
-    toolbar.adjustSize()
-    toolbar.move(
-        screen.center().x() - toolbar.width() // 2,
-        screen.top() + 20,
-    )
-    toolbar.show()
+    def _place_and_show():
+        # Use availableGeometry so the taskbar is excluded from the usable area
+        screen = QApplication.primaryScreen().availableGeometry()
+        toolbar.adjustSize()
+        w, h = toolbar.width(), toolbar.height()
+
+        # Restore saved position; fall back to top-center if missing or off-screen
+        sx = settings.get("toolbar_x")
+        sy = settings.get("toolbar_y")
+        try:
+            x, y = int(sx), int(sy)
+            on_screen = (screen.left() <= x <= screen.right() - w and
+                         screen.top() <= y <= screen.bottom() - h)
+            if not on_screen:
+                raise ValueError
+        except (TypeError, ValueError):
+            x = screen.center().x() - w // 2
+            y = screen.top() + 20
+
+        toolbar.move(x, y)
+        toolbar.show()
+        toolbar.raise_()
+
+    # Delay slightly so Qt finishes initialising screen info before we measure
+    QTimer.singleShot(150, _place_and_show)
 
     sys.exit(app.exec())
 

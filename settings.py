@@ -4,6 +4,8 @@ DEFAULTS: dict = {
     "source_lang": "zh-TW",
     "target_lang": "en",
     "overlay_opacity": 0.85,
+    "toolbar_x": None,
+    "toolbar_y": None,
 }
 
 

@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QColor, QPainter, QPainterPath
+from PyQt6.QtGui import QColor, QPainter, QPainterPath  # QColor used in overlay; keep for safety
 
 from settings import Settings
 from overlay import OverlayWindow
@@ -136,13 +136,17 @@ class ToolbarWindow(QWidget):
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
-            | Qt.WindowType.Tool
         )
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        # Solid background — WA_TranslucentBackground is skipped because
+        # compositor support is unreliable on some Windows configurations
+        # and can cause the window to render as fully invisible.
         self.setFixedHeight(56)
         self.setStyleSheet("""
+            ToolbarWindow {
+                background-color: rgb(28, 28, 28);
+            }
             QComboBox {
-                background: rgba(55,55,55,210);
+                background: rgb(55, 55, 55);
                 color: white;
                 border: 1px solid rgba(255,255,255,55);
                 border-radius: 5px;
@@ -191,13 +195,10 @@ class ToolbarWindow(QWidget):
 
     # ------------------------------------------------------------------ paint / drag
 
-    def paintEvent(self, event) -> None:
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        path = QPainterPath()
-        path.addRoundedRect(0, 0, self.width(), self.height(), 10, 10)
-        painter.fillPath(path, QColor(28, 28, 28, 222))
-        painter.end()
+    def moveEvent(self, event) -> None:
+        super().moveEvent(event)
+        self._settings.set("toolbar_x", self.x())
+        self._settings.set("toolbar_y", self.y())
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
