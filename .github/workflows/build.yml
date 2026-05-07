@@ -37,18 +37,14 @@ jobs:
           & "$pyDir\python.exe" -m pip install -r requirements.txt --quiet --no-user --no-warn-script-location
           Write-Host "==> Python environment ready."
 
-      - name: Compile launcher exe
-        shell: pwsh
-        run: |
-          go build -ldflags "-H windowsgui" -o "dist\AutoScreenTranslator\AutoScreenTranslator.exe" .
-          Write-Host "==> Launcher compiled."
-
-      - name: Copy source files and instructions
+      - name: Copy source files and create launcher
         shell: pwsh
         run: |
           $files = @("main.py","settings.py","translator.py","ocr_engine.py","capture.py","overlay.py","toolbar.py")
           foreach ($f in $files) { Copy-Item $f "dist\AutoScreenTranslator\" }
-          "HOW TO RUN: Double-click AutoScreenTranslator.exe" | Out-File -FilePath "dist\AutoScreenTranslator\HOW_TO_RUN.txt" -Encoding utf8
+          $bat = '@echo off' + "`r`n" + 'start "" "%~dp0python\pythonw.exe" "%~dp0main.py"'
+          [System.IO.File]::WriteAllText("dist\AutoScreenTranslator\AutoScreenTranslator.bat", $bat)
+          "Double-click AutoScreenTranslator.bat to launch the app." | Out-File -FilePath "dist\AutoScreenTranslator\HOW_TO_RUN.txt" -Encoding utf8
           Write-Host "==> Files copied."
 
       - name: Zip output with 7-Zip
