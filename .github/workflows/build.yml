@@ -36,6 +36,10 @@ jobs:
           Write-Host "==> Installing app dependencies..."
           & "$pyDir\python.exe" -m pip install -r requirements.txt --quiet --no-user --no-warn-script-location
           Write-Host "==> Python environment ready."
+          # qt.conf tells Qt where its platform plugins live (qwindows.dll etc.)
+          # Without this PyQt6 silently fails to create any windows on embedded Python.
+          "[Paths]`r`nPlugins = Lib/site-packages/PyQt6/Qt6/plugins" | Out-File -FilePath "$pyDir\qt.conf" -Encoding ascii
+          Write-Host "==> qt.conf written."
 
       - name: Copy source files and create launcher
         shell: pwsh
