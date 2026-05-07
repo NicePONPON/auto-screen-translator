@@ -34,7 +34,7 @@ jobs:
           Write-Host "==> Installing CPU-only PyTorch..."
           & "$pyDir\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet --no-user --no-warn-script-location
           Write-Host "==> Installing app dependencies..."
-          & "$pyDir\python.exe" -m pip install -r requirements.txt --quiet --no-user --no-warn-script-location
+          & "$pyDir\python.exe" -m pip install google-generativeai Pillow certifi PyQt6 --quiet --no-user --no-warn-script-location
           Write-Host "==> Python environment ready."
           # qt.conf tells Qt where its platform plugins live (qwindows.dll etc.)
           # Without this PyQt6 silently fails to create any windows on embedded Python.
