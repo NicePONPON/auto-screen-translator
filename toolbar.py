@@ -9,8 +9,8 @@ from settings import Settings
 from translation_panel import TranslationPanel
 from capture import ScreenCaptureWindow
 from languages import FAVORITES, get_all_languages
-from gemini_client import GeminiWorker
-from api_key_dialog import ApiKeyDialog
+from ocr_engine import OcrWorker
+from translator_client import TranslatorWorker
 
 
 # ──────────────────────────────────────────── Language search dialog
@@ -104,12 +104,14 @@ class LangCombo(QComboBox):
 class ToolbarWindow(QWidget):
     def __init__(self, settings: Settings, panel: TranslationPanel) -> None:
         super().__init__()
-        self._settings = settings
-        self._panel    = panel
-        self._drag_pos = QPoint()
-        self._dragging = False
-        self._capture_win: ScreenCaptureWindow | None = None
-        self._worker:      GeminiWorker        | None = None
+        self._settings      = settings
+        self._panel         = panel
+        self._drag_pos      = QPoint()
+        self._dragging      = False
+        self._capture_win:  ScreenCaptureWindow | None = None
+        self._ocr_worker:   OcrWorker           | None = None
+        self._trans_worker: TranslatorWorker    | None = None
+        self._pending_original: str = ""
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -163,21 +165,6 @@ class ToolbarWindow(QWidget):
         capture_btn.clicked.connect(self._start_capture)
         row.addWidget(capture_btn)
 
-        settings_btn = QPushButton("S")
-        settings_btn.setFixedSize(28, 28)
-        settings_btn.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,20); color: white;"
-            " border: none; border-radius: 5px; font-size: 14px; }"
-            "QPushButton:hover { background: rgba(255,255,255,45); }"
-        )
-        settings_btn.clicked.connect(self._open_settings)
-        row.addWidget(settings_btn)
-
-    def _open_settings(self) -> None:
-        dlg = ApiKeyDialog(self._settings.get("gemini_api_key") or "", self)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._settings.set("gemini_api_key", dlg.key())
-
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor(28, 28, 28))
@@ -206,8 +193,9 @@ class ToolbarWindow(QWidget):
         self._capture_win.show()
 
     def _on_region(self, x: int, y: int, w: int, h: int) -> None:
-        if self._worker:
-            self._worker.blockSignals(True)
+        for w_ in (self._ocr_worker, self._trans_worker):
+            if w_:
+                w_.blockSignals(True)
 
         self._panel.add_loading_card()
         self._panel.show()
@@ -220,13 +208,25 @@ class ToolbarWindow(QWidget):
             int((x + w) * dpr), int((y + h) * dpr),
         ))
 
-        api_key = self._settings.get("gemini_api_key") or ""
-        self._worker = GeminiWorker(
-            image,
+        self._ocr_worker = OcrWorker(image, self._src_combo.current_code())
+        self._ocr_worker.ocr_done.connect(self._on_ocr_done)
+        self._ocr_worker.ocr_failed.connect(
+            lambda err: self._panel.add_error_card(f"OCR failed: {err}")
+        )
+        self._ocr_worker.start()
+
+    def _on_ocr_done(self, text: str) -> None:
+        if not text:
+            self._panel.add_error_card("No text detected")
+            return
+        self._pending_original = text
+        self._trans_worker = TranslatorWorker(
+            text,
             self._src_combo.current_code(),
             self._tgt_combo.current_code(),
-            api_key,
         )
-        self._worker.result_ready.connect(self._panel.add_card)
-        self._worker.failed.connect(self._panel.add_error_card)
-        self._worker.start()
+        self._trans_worker.translation_ready.connect(self._on_translation)
+        self._trans_worker.start()
+
+    def _on_translation(self, translation: str, success: bool) -> None:
+        self._panel.add_card(self._pending_original, translation)

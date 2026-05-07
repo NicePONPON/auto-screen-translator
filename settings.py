@@ -1,15 +1,14 @@
 from PyQt6.QtCore import QSettings
 
 DEFAULTS: dict = {
-    "source_lang":    "zh-TW",
-    "target_lang":    "en",
-    "gemini_api_key": "",
-    "toolbar_x":      None,
-    "toolbar_y":      None,
-    "panel_x":        None,
-    "panel_y":        None,
-    "panel_w":        320,
-    "panel_h":        500,
+    "source_lang": "zh-TW",
+    "target_lang": "en",
+    "toolbar_x":   None,
+    "toolbar_y":   None,
+    "panel_x":     None,
+    "panel_y":     None,
+    "panel_w":     320,
+    "panel_h":     500,
 }
 
 

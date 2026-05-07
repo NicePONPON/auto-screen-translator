@@ -44,12 +44,11 @@ if sys.platform == "win32":
         _log(f"DPI awareness skipped: {e}")
 
 try:
-    from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog
+    from PyQt6.QtWidgets import QApplication, QMessageBox
     from PyQt6.QtCore import QTimer
     _log("PyQt6 OK")
 
     from settings import Settings
-    from api_key_dialog import ApiKeyDialog
     from translation_panel import TranslationPanel
     from toolbar import ToolbarWindow
     _log("Modules OK")
@@ -61,14 +60,7 @@ try:
     _log("QApplication OK")
 
     settings = Settings()
-
-    if not settings.get("gemini_api_key"):
-        _log("No API key - showing setup dialog")
-        dlg = ApiKeyDialog()
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            settings.set("gemini_api_key", dlg.key())
-
-    panel   = TranslationPanel(settings)
+    panel    = TranslationPanel(settings)
     toolbar = ToolbarWindow(settings, panel)
     _log("Windows created OK")
 
