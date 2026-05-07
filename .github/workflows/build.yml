@@ -23,84 +23,33 @@ jobs:
           $outDir = "dist\AutoScreenTranslator"
           $pyDir  = "$outDir\python"
           New-Item -ItemType Directory -Path $pyDir -Force | Out-Null
-
           Write-Host "==> Downloading Python $pyVer embeddable..."
           Invoke-WebRequest "https://www.python.org/ftp/python/$pyVer/python-$pyVer-embed-amd64.zip" -OutFile "py-embed.zip"
           Expand-Archive "py-embed.zip" -DestinationPath $pyDir
-
           $pth = Get-ChildItem $pyDir -Filter "*._pth" | Select-Object -First 1 -ExpandProperty FullName
           (Get-Content $pth) -replace '#import site','import site' | Set-Content $pth
-
           Write-Host "==> Installing pip..."
           Invoke-WebRequest "https://bootstrap.pypa.io/get-pip.py" -OutFile "get-pip.py"
           & "$pyDir\python.exe" get-pip.py --quiet --no-warn-script-location
-
           Write-Host "==> Installing CPU-only PyTorch..."
           & "$pyDir\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet --no-user --no-warn-script-location
-
           Write-Host "==> Installing app dependencies..."
           & "$pyDir\python.exe" -m pip install -r requirements.txt --quiet --no-user --no-warn-script-location
-
           Write-Host "==> Python environment ready."
 
       - name: Generate app icon
         shell: pwsh
         run: |
           $pyDir = "dist\AutoScreenTranslator\python"
-          & "$pyDir\python.exe" -c "
-from PIL import Image, ImageDraw
-
-def frame(size):
-    img = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-    r = size // 6
-    d.rounded_rectangle([0, 0, size-1, size-1], radius=r, fill=(28, 28, 28, 255))
-    pad = size // 5
-    d.ellipse([pad, pad, size-pad-1, size-pad-1], fill=(58, 123, 213, 255))
-    hw = max(2, size // 10)
-    cx, cy = size // 2, size // 2
-    span = size // 3
-    d.rectangle([cx - span, cy - hw, cx + span, cy + hw], fill='white')
-    d.rectangle([cx - hw, cy - span, cx + hw, cy + span], fill='white')
-    return img
-
-sizes = [256, 128, 64, 48, 32, 16]
-imgs = [frame(s) for s in sizes]
-imgs[0].save('icon.ico', format='ICO', sizes=[(s, s) for s in sizes], append_images=imgs[1:])
-print('icon.ico created')
-"
+          $script = "from PIL import Image,ImageDraw; make=lambda s:(Image.new('RGBA',(s,s),(0,0,0,0))); frames=[]; [frames.append((lambda i,d: (d.rounded_rectangle([0,0,s-1,s-1],radius=s//6,fill=(28,28,28,255)),d.ellipse([s//5,s//5,s-s//5-1,s-s//5-1],fill=(58,123,213,255)),d.rectangle([s//2-s//3,s//2-s//10,s//2+s//3,s//2+s//10],fill='white'),d.rectangle([s//2-s//10,s//2-s//3,s//2+s//10,s//2+s//3],fill='white'),i)[-1])(make(s),ImageDraw.Draw(make(s)))) for s in [256,128,64,48,32,16]]; [frames[0].save('winres/icon.ico',format='ICO',sizes=[(s,s) for s in [256,128,64,48,32,16]],append_images=frames[1:])]"
+          & "$pyDir\python.exe" -c $script
+          Write-Host "==> Icon generated."
 
       - name: Compile launcher exe with icon
         shell: pwsh
         run: |
           go install github.com/tc-hib/go-winres/cmd/go-winres@latest
           $gobin = (go env GOPATH) + '\bin'
-
-          $manifest = @'
-<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
-  <assemblyIdentity version="1.0.0.0" processorArchitecture="amd64"
-    name="AutoScreenTranslator" type="win32"/>
-  <description>Auto Screen Translator</description>
-  <dependency>
-    <dependentAssembly>
-      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls"
-        version="6.0.0.0" processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*"/>
-    </dependentAssembly>
-  </dependency>
-  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
-    <security><requestedPrivileges><requestedExecutionLevel level="asInvoker"/></requestedPrivileges></security>
-  </trustInfo>
-</assembly>
-'@
-          $manifest | Out-File -FilePath "app.manifest" -Encoding utf8
-
-          $winresJson = '{"RT_GROUP_ICON":{"#1":{"0000":["icon.ico"]}},"RT_MANIFEST":{"#1":{"0409":"app.manifest"}}}'
-          $winresJson | Out-File -FilePath "winres\winres.json" -Encoding ascii -Force
-          New-Item -ItemType Directory -Path "winres" -Force | Out-Null
-          $winresJson | Out-File -FilePath "winres\winres.json" -Encoding ascii
-          Copy-Item "icon.ico" "winres\icon.ico"
-
           & "$gobin\go-winres.exe" make --in winres\winres.json
           go build -ldflags "-H windowsgui" -o "dist\AutoScreenTranslator\AutoScreenTranslator.exe" .
           Write-Host "==> Launcher compiled with icon."
@@ -111,6 +60,11 @@ print('icon.ico created')
           $files = @("main.py","settings.py","translator.py","ocr_engine.py","capture.py","overlay.py","toolbar.py")
           foreach ($f in $files) { Copy-Item $f "dist\AutoScreenTranslator\" }
           Write-Host "==> Source files copied."
+
+      - name: Create README in package
+        shell: pwsh
+        run: |
+          "Double-click AutoScreenTranslator.exe to launch the app." | Out-File -FilePath "dist\AutoScreenTranslator\HOW_TO_RUN.txt" -Encoding utf8
 
       - name: Zip output with 7-Zip
         shell: pwsh
