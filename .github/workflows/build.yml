@@ -37,34 +37,19 @@ jobs:
           & "$pyDir\python.exe" -m pip install -r requirements.txt --quiet --no-user --no-warn-script-location
           Write-Host "==> Python environment ready."
 
-      - name: Generate app icon
+      - name: Compile launcher exe
         shell: pwsh
         run: |
-          $pyDir = "dist\AutoScreenTranslator\python"
-          $script = "from PIL import Image,ImageDraw; make=lambda s:(Image.new('RGBA',(s,s),(0,0,0,0))); frames=[]; [frames.append((lambda i,d: (d.rounded_rectangle([0,0,s-1,s-1],radius=s//6,fill=(28,28,28,255)),d.ellipse([s//5,s//5,s-s//5-1,s-s//5-1],fill=(58,123,213,255)),d.rectangle([s//2-s//3,s//2-s//10,s//2+s//3,s//2+s//10],fill='white'),d.rectangle([s//2-s//10,s//2-s//3,s//2+s//10,s//2+s//3],fill='white'),i)[-1])(make(s),ImageDraw.Draw(make(s)))) for s in [256,128,64,48,32,16]]; [frames[0].save('winres/icon.ico',format='ICO',sizes=[(s,s) for s in [256,128,64,48,32,16]],append_images=frames[1:])]"
-          & "$pyDir\python.exe" -c $script
-          Write-Host "==> Icon generated."
-
-      - name: Compile launcher exe with icon
-        shell: pwsh
-        run: |
-          go install github.com/tc-hib/go-winres/cmd/go-winres@latest
-          $gobin = (go env GOPATH) + '\bin'
-          & "$gobin\go-winres.exe" make --in winres\winres.json
           go build -ldflags "-H windowsgui" -o "dist\AutoScreenTranslator\AutoScreenTranslator.exe" .
-          Write-Host "==> Launcher compiled with icon."
+          Write-Host "==> Launcher compiled."
 
-      - name: Copy source files
+      - name: Copy source files and instructions
         shell: pwsh
         run: |
           $files = @("main.py","settings.py","translator.py","ocr_engine.py","capture.py","overlay.py","toolbar.py")
           foreach ($f in $files) { Copy-Item $f "dist\AutoScreenTranslator\" }
-          Write-Host "==> Source files copied."
-
-      - name: Create README in package
-        shell: pwsh
-        run: |
-          "Double-click AutoScreenTranslator.exe to launch the app." | Out-File -FilePath "dist\AutoScreenTranslator\HOW_TO_RUN.txt" -Encoding utf8
+          "HOW TO RUN: Double-click AutoScreenTranslator.exe" | Out-File -FilePath "dist\AutoScreenTranslator\HOW_TO_RUN.txt" -Encoding utf8
+          Write-Host "==> Files copied."
 
       - name: Zip output with 7-Zip
         shell: pwsh
