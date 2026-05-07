@@ -1,7 +1,16 @@
 import io
+import base64
+import requests as _requests
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from languages import LANG_DISPLAY
+
+# Free AI Studio REST endpoint — no SDK, no billing routing, definitively free tier.
+# Free limits: 15 requests/min, 1,500 requests/day.
+_API_URL = (
+    "https://generativelanguage.googleapis.com"
+    "/v1beta/models/gemini-2.0-flash:generateContent"
+)
 
 
 def _lang_name(code: str) -> str:
@@ -22,10 +31,10 @@ class GeminiWorker(QThread):
 
     def run(self) -> None:
         try:
-            import google.generativeai as genai
-
-            genai.configure(api_key=self.api_key)
-            model = genai.GenerativeModel("gemini-2.0-flash")
+            # Convert PIL image to base64 PNG
+            buf = io.BytesIO()
+            self.image.save(buf, format="PNG")
+            img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
             target_name = _lang_name(self.target_lang)
             prompt = (
@@ -36,9 +45,41 @@ class GeminiWorker(QThread):
                 f"TRANSLATION: [translated text here]"
             )
 
-            # PIL.Image is accepted directly by the google-generativeai SDK
-            response = model.generate_content([self.image, prompt])
-            self._parse(response.text.strip())
+            payload = {
+                "contents": [{
+                    "parts": [
+                        {"inline_data": {"mime_type": "image/png", "data": img_b64}},
+                        {"text": prompt},
+                    ]
+                }]
+            }
+
+            resp = _requests.post(
+                _API_URL,
+                params={"key": self.api_key},
+                json=payload,
+                timeout=30,
+            )
+
+            if resp.status_code == 429:
+                self.failed.emit(
+                    "Rate limit reached (free tier: 15 requests/min). "
+                    "Please wait a moment and try again."
+                )
+                return
+            if not resp.ok:
+                self.failed.emit(f"API error {resp.status_code}: {resp.text[:200]}")
+                return
+
+            text = (
+                resp.json()
+                .get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", "")
+                .strip()
+            )
+            self._parse(text)
 
         except Exception as exc:
             self.failed.emit(str(exc))
