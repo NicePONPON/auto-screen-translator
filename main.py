@@ -5,6 +5,11 @@ import datetime
 
 # All errors are logged here because pythonw.exe has no console output
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Embedded Python does not add the script directory to sys.path automatically.
+# Insert it so local modules (settings, toolbar, overlay, …) can be imported.
+if _APP_DIR not in sys.path:
+    sys.path.insert(0, _APP_DIR)
 _LOG     = os.path.join(_APP_DIR, "error.log")
 
 
