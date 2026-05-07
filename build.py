@@ -83,6 +83,10 @@ def main() -> None:
         "--onedir",
         "--windowed",
         "--noconfirm",
+        # Put ALL support files flat next to the .exe (no _internal/ subfolder).
+        # This ensures python311.dll and vcruntime140.dll are in the same directory
+        # so Windows DLL search finds them correctly on clean installs.
+        "--contents-directory", ".",
         "--collect-all", "easyocr",
         "--collect-all", "deep_translator",
         "--collect-all", "PIL",
