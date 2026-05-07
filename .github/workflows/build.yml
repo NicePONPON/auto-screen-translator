@@ -1,0 +1,81 @@
+name: Build Auto Screen Translator for Windows
+
+on:
+  workflow_dispatch:          # manual trigger from the Actions tab
+  push:
+    branches: [main]
+
+permissions:
+  contents: write             # needed to create/update releases
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}-torch-cpu
+
+      - name: Install CPU-only PyTorch
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install app dependencies + PyInstaller
+        run: pip install -r requirements.txt pyinstaller
+
+      - name: Build with PyInstaller
+        run: python build.py
+
+      - name: Zip build output
+        shell: pwsh
+        run: |
+          Compress-Archive `
+            -Path "dist\AutoScreenTranslator\*" `
+            -DestinationPath "AutoScreenTranslator-Windows.zip"
+
+      - name: Upload artifact (Actions tab — 30-day archive)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AutoScreenTranslator-Windows
+          path: AutoScreenTranslator-Windows.zip
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete latest --yes 2>$null
+          git push --delete origin latest 2>$null
+
+          $notes = @"
+## Auto Screen Translator for Windows
+
+Auto-built from the latest source on ``main``.
+
+### How to install
+1. Download **AutoScreenTranslator-Windows.zip** below
+2. Extract the zip to any folder — e.g. ``C:\AutoScreenTranslator\``
+3. Double-click **AutoScreenTranslator.exe** — that's it
+
+### First launch
+On your first Capture, EasyOCR downloads ~180 MB of model files in the background.
+Models are cached at ``%APPDATA%\ocr_translator\models`` — every launch after that is instant.
+"@
+          $notes | Out-File -FilePath release-notes.md -Encoding utf8
+
+          gh release create latest `
+            --title "Auto Screen Translator — Latest Build" `
+            --notes-file release-notes.md `
+            --latest `
+            "AutoScreenTranslator-Windows.zip"
