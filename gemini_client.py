@@ -25,7 +25,7 @@ class GeminiWorker(QThread):
             import google.generativeai as genai
 
             genai.configure(api_key=self.api_key)
-            model = genai.GenerativeModel("gemini-1.5-flash")
+            model = genai.GenerativeModel("gemini-2.0-flash")
 
             target_name = _lang_name(self.target_lang)
             prompt = (
