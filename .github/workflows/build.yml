@@ -31,8 +31,6 @@ jobs:
           Write-Host "==> Installing pip..."
           Invoke-WebRequest "https://bootstrap.pypa.io/get-pip.py" -OutFile "get-pip.py"
           & "$pyDir\python.exe" get-pip.py --quiet --no-warn-script-location
-          Write-Host "==> Installing CPU-only PyTorch..."
-          & "$pyDir\python.exe" -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --quiet --no-user --no-warn-script-location
           Write-Host "==> Installing app dependencies..."
           & "$pyDir\python.exe" -m pip install google-generativeai Pillow certifi PyQt6 --quiet --no-user --no-warn-script-location
           Write-Host "==> Python environment ready."
@@ -44,7 +42,7 @@ jobs:
       - name: Copy source files and create launcher
         shell: pwsh
         run: |
-          $files = @("main.py","settings.py","translator.py","ocr_engine.py","capture.py","overlay.py","toolbar.py")
+          $files = @("main.py","settings.py","languages.py","capture.py","toolbar.py","gemini_client.py","api_key_dialog.py","translation_card.py","translation_panel.py")
           foreach ($f in $files) { Copy-Item $f "dist\AutoScreenTranslator\" }
           $bat = '@echo off' + "`r`n" + 'start "" "%~dp0python\pythonw.exe" "%~dp0main.py"'
           [System.IO.File]::WriteAllText("dist\AutoScreenTranslator\AutoScreenTranslator.bat", $bat)
