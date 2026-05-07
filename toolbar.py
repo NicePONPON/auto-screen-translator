@@ -12,15 +12,10 @@ from capture import ScreenCaptureWindow
 from translator import FAVORITES, get_all_languages, TranslatorWorker
 from ocr_engine import OcrWorker
 
-_POSITIONS  = ["top", "bottom", "left", "right"]
-_POS_ICONS  = {"top": "↑", "bottom": "↓", "left": "←", "right": "→"}
-
 
 # ──────────────────────────────────────────────── Language search dialog
 
 class LanguageSearchDialog(QDialog):
-    """Full searchable language picker shown when the user chooses 'Other…'."""
-
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
         self.setWindowTitle("Select Language")
@@ -30,7 +25,7 @@ class LanguageSearchDialog(QDialog):
         layout = QVBoxLayout(self)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Type to search…")
+        self._search.setPlaceholderText("Type to search...")
         self._search.textChanged.connect(self._filter)
         layout.addWidget(self._search)
 
@@ -61,9 +56,7 @@ class LanguageSearchDialog(QDialog):
 # ──────────────────────────────────────────────── Hybrid combo box
 
 class LangCombo(QComboBox):
-    """QComboBox pre-loaded with FAVORITES + 'Other…' that opens a search dialog."""
-
-    _OTHER = "Other…"
+    _OTHER = "Other..."
 
     def __init__(self, settings_key: str, settings: Settings, parent=None) -> None:
         super().__init__(parent)
@@ -74,7 +67,6 @@ class LangCombo(QComboBox):
             self.addItem(name, userData=code)
         self.addItem(self._OTHER, userData=None)
 
-        # Restore persisted choice before wiring the change signal
         self._restore(settings.get(settings_key))
         self.currentIndexChanged.connect(self._on_change)
 
@@ -83,7 +75,6 @@ class LangCombo(QComboBox):
             if c == code:
                 self.setCurrentIndex(i)
                 return
-        # Saved code not in FAVORITES — leave at index 0
 
     def current_code(self) -> str:
         return self.currentData() or "en"
@@ -97,20 +88,31 @@ class LangCombo(QComboBox):
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_code:
             code = dlg.selected_code
             all_langs = get_all_languages()
-            name = next(
-                (n for n, c in all_langs.items() if c == code), code
-            )
-            insert_at = self.count() - 1   # just before "Other…"
+            name = next((n for n, c in all_langs.items() if c == code), code)
+            insert_at = self.count() - 1
             self.insertItem(insert_at, name, userData=code)
             self.blockSignals(True)
             self.setCurrentIndex(insert_at)
             self.blockSignals(False)
             self._settings.set(self._key, code)
         else:
-            # User cancelled — revert without firing _on_change again
             self.blockSignals(True)
             self.setCurrentIndex(0)
             self.blockSignals(False)
+
+
+# ──────────────────────────────────────────────── Auto-position helper
+
+def _best_side(rx: int, ry: int, rw: int, rh: int, ow: int, oh: int) -> str:
+    """Pick the side of the capture region with the most available screen space."""
+    screen = QApplication.primaryScreen().geometry()
+    space = {
+        "bottom": screen.bottom() - (ry + rh),
+        "top":    ry - screen.top(),
+        "right":  screen.right() - (rx + rw),
+        "left":   rx - screen.left(),
+    }
+    return max(space, key=lambda k: space[k])
 
 
 # ──────────────────────────────────────────────── Toolbar window
@@ -127,7 +129,6 @@ class ToolbarWindow(QWidget):
         self._trans_worker: TranslatorWorker  | None = None
 
         self._setup_ui()
-        self._sync_pos_buttons()
 
     # ------------------------------------------------------------------ setup
 
@@ -166,31 +167,11 @@ class ToolbarWindow(QWidget):
         self._src_combo.setFixedWidth(148)
         row.addWidget(self._src_combo)
 
-        row.addWidget(QLabel("→"))
+        row.addWidget(QLabel("->"))
 
         self._tgt_combo = LangCombo("target_lang", self._settings, self)
         self._tgt_combo.setFixedWidth(148)
         row.addWidget(self._tgt_combo)
-
-        row.addSpacing(6)
-
-        # Position toggle buttons  ↑ ↓ ← →
-        self._pos_btns: dict[str, QPushButton] = {}
-        for pos in _POSITIONS:
-            btn = QPushButton(_POS_ICONS[pos])
-            btn.setFixedSize(26, 26)
-            btn.setCheckable(True)
-            btn.setStyleSheet(
-                "QPushButton {"
-                "  background: rgba(255,255,255,25); color: white;"
-                "  border: none; border-radius: 4px; font-size: 14px;"
-                "}"
-                "QPushButton:checked { background: rgba(58,123,213,200); }"
-                "QPushButton:hover   { background: rgba(255,255,255,55); }"
-            )
-            btn.clicked.connect(lambda _checked, p=pos: self._set_position(p))
-            row.addWidget(btn)
-            self._pos_btns[pos] = btn
 
         row.addSpacing(6)
 
@@ -207,15 +188,6 @@ class ToolbarWindow(QWidget):
         )
         capture_btn.clicked.connect(self._start_capture)
         row.addWidget(capture_btn)
-
-    def _sync_pos_buttons(self) -> None:
-        current = self._settings.get("overlay_position")
-        for pos, btn in self._pos_btns.items():
-            btn.setChecked(pos == current)
-
-    def _set_position(self, pos: str) -> None:
-        self._settings.set("overlay_position", pos)
-        self._sync_pos_buttons()
 
     # ------------------------------------------------------------------ paint / drag
 
@@ -249,23 +221,18 @@ class ToolbarWindow(QWidget):
         self._capture_win.show()
 
     def _on_region(self, x: int, y: int, w: int, h: int) -> None:
-        # Silence any results from a previous in-flight capture
         for worker in (self._ocr_worker, self._trans_worker):
             if worker is not None:
                 worker.blockSignals(True)
 
-        side = self._settings.get("overlay_position")
+        # Auto-pick the side with the most available screen space
+        self._overlay.adjustSize()
+        side = _best_side(x, y, w, h, self._overlay.width(), self._overlay.height())
         self._overlay.show_at_region(x, y, w, h, side)
 
-        # Screenshot the region in physical pixels (logical × DPR)
         from PIL import ImageGrab
         dpr  = QApplication.primaryScreen().devicePixelRatio()
-        bbox = (
-            int(x * dpr),
-            int(y * dpr),
-            int((x + w) * dpr),
-            int((y + h) * dpr),
-        )
+        bbox = (int(x * dpr), int(y * dpr), int((x + w) * dpr), int((y + h) * dpr))
         image = ImageGrab.grab(bbox=bbox)
 
         src = self._src_combo.current_code()
@@ -284,7 +251,6 @@ class ToolbarWindow(QWidget):
         if not text:
             self._overlay.show_result("No text found", True)
             return
-
         src = self._src_combo.current_code()
         self._trans_worker = TranslatorWorker(text, src, tgt)
         self._trans_worker.translation_ready.connect(self._overlay.show_result)

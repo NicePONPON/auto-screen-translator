@@ -3,7 +3,6 @@ from PyQt6.QtCore import QSettings
 DEFAULTS: dict = {
     "source_lang": "zh-TW",
     "target_lang": "en",
-    "overlay_position": "bottom",
     "overlay_opacity": 0.85,
 }
 
