@@ -62,11 +62,20 @@ class GeminiWorker(QThread):
             )
 
             if resp.status_code == 429:
-                self.failed.emit(
-                    "Rate limit reached (free tier: 15 requests/min). "
-                    "Please wait a moment and try again."
+                # Free tier: 15 req/min. Wait 6 seconds and retry once.
+                import time
+                time.sleep(6)
+                resp = _requests.post(
+                    _API_URL,
+                    params={"key": self.api_key},
+                    json=payload,
+                    timeout=30,
                 )
-                return
+                if resp.status_code == 429:
+                    self.failed.emit(
+                        "Rate limit reached. Please wait a few seconds and try again."
+                    )
+                    return
             if not resp.ok:
                 self.failed.emit(f"API error {resp.status_code}: {resp.text[:200]}")
                 return
