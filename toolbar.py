@@ -1,19 +1,19 @@
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QComboBox, QLabel, QPushButton,
-    QApplication, QDialog, QVBoxLayout, QLineEdit, QListWidget,
-    QListWidgetItem,
+    QApplication, QDialog, QVBoxLayout, QLineEdit, QListWidget, QListWidgetItem,
 )
 from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QColor, QPainter, QPainterPath  # QColor used in overlay; keep for safety
+from PyQt6.QtGui import QColor, QPainter
 
 from settings import Settings
-from overlay import OverlayWindow
+from translation_panel import TranslationPanel
 from capture import ScreenCaptureWindow
-from translator import FAVORITES, get_all_languages, TranslatorWorker
-from ocr_engine import OcrWorker
+from languages import FAVORITES, get_all_languages
+from gemini_client import GeminiWorker
+from api_key_dialog import ApiKeyDialog
 
 
-# ──────────────────────────────────────────────── Language search dialog
+# ──────────────────────────────────────────── Language search dialog
 
 class LanguageSearchDialog(QDialog):
     def __init__(self, parent=None) -> None:
@@ -23,7 +23,6 @@ class LanguageSearchDialog(QDialog):
         self.selected_code: str | None = None
 
         layout = QVBoxLayout(self)
-
         self._search = QLineEdit()
         self._search.setPlaceholderText("Type to search...")
         self._search.textChanged.connect(self._filter)
@@ -53,7 +52,7 @@ class LanguageSearchDialog(QDialog):
         self.accept()
 
 
-# ──────────────────────────────────────────────── Hybrid combo box
+# ──────────────────────────────────────────── Hybrid combo box
 
 class LangCombo(QComboBox):
     _OTHER = "Other..."
@@ -83,7 +82,6 @@ class LangCombo(QComboBox):
         if self.currentText() != self._OTHER:
             self._settings.set(self._key, self.current_code())
             return
-
         dlg = LanguageSearchDialog(self)
         if dlg.exec() == QDialog.DialogCode.Accepted and dlg.selected_code:
             code = dlg.selected_code
@@ -101,66 +99,39 @@ class LangCombo(QComboBox):
             self.blockSignals(False)
 
 
-# ──────────────────────────────────────────────── Auto-position helper
-
-def _best_side(rx: int, ry: int, rw: int, rh: int, ow: int, oh: int) -> str:
-    """Pick the side of the capture region with the most available screen space."""
-    screen = QApplication.primaryScreen().geometry()
-    space = {
-        "bottom": screen.bottom() - (ry + rh),
-        "top":    ry - screen.top(),
-        "right":  screen.right() - (rx + rw),
-        "left":   rx - screen.left(),
-    }
-    return max(space, key=lambda k: space[k])
-
-
-# ──────────────────────────────────────────────── Toolbar window
+# ──────────────────────────────────────────── Toolbar window
 
 class ToolbarWindow(QWidget):
-    def __init__(self, settings: Settings, overlay: OverlayWindow) -> None:
+    def __init__(self, settings: Settings, panel: TranslationPanel) -> None:
         super().__init__()
-        self._settings     = settings
-        self._overlay      = overlay
-        self._drag_pos     = QPoint()
-        self._dragging     = False
+        self._settings = settings
+        self._panel    = panel
+        self._drag_pos = QPoint()
+        self._dragging = False
         self._capture_win: ScreenCaptureWindow | None = None
-        self._ocr_worker:   OcrWorker         | None = None
-        self._trans_worker: TranslatorWorker  | None = None
-
+        self._worker:      GeminiWorker        | None = None
         self._setup_ui()
-
-    # ------------------------------------------------------------------ setup
 
     def _setup_ui(self) -> None:
         self.setWindowFlags(
             Qt.WindowType.FramelessWindowHint
             | Qt.WindowType.WindowStaysOnTopHint
         )
-        # Solid background — WA_TranslucentBackground is skipped because
-        # compositor support is unreliable on some Windows configurations
-        # and can cause the window to render as fully invisible.
         self.setFixedHeight(56)
         self.setStyleSheet("""
-            ToolbarWindow {
-                background-color: rgb(28, 28, 28);
-            }
+            ToolbarWindow { background-color: rgb(28,28,28); }
             QComboBox {
-                background: rgb(55, 55, 55);
-                color: white;
-                border: 1px solid rgba(255,255,255,55);
-                border-radius: 5px;
-                padding: 3px 8px;
-                font-size: 12px;
+                background: rgb(50,50,50); color: white;
+                border: 1px solid rgba(255,255,255,50);
+                border-radius: 5px; padding: 3px 8px; font-size: 12px;
             }
             QComboBox::drop-down { border: none; width: 18px; }
             QComboBox QAbstractItemView {
-                background: #2a2a2a;
-                color: white;
+                background: #2a2a2a; color: white;
                 selection-background-color: #3a7bd5;
                 border: 1px solid rgba(255,255,255,40);
             }
-            QLabel { color: white; font-size: 15px; }
+            QLabel { color: white; font-size: 14px; }
         """)
 
         row = QHBoxLayout(self)
@@ -177,15 +148,14 @@ class ToolbarWindow(QWidget):
         self._tgt_combo.setFixedWidth(148)
         row.addWidget(self._tgt_combo)
 
-        row.addSpacing(6)
+        row.addSpacing(4)
 
         capture_btn = QPushButton("Capture")
         capture_btn.setFixedSize(70, 36)
         capture_btn.setStyleSheet(
             "QPushButton {"
             "  background: rgba(58,123,213,210); color: white;"
-            "  border: none; border-radius: 6px;"
-            "  font-weight: bold; font-size: 13px;"
+            "  border: none; border-radius: 6px; font-weight: bold; font-size: 13px;"
             "}"
             "QPushButton:hover   { background: rgba(58,123,213,255); }"
             "QPushButton:pressed { background: rgba(38,99,180,255); }"
@@ -193,12 +163,25 @@ class ToolbarWindow(QWidget):
         capture_btn.clicked.connect(self._start_capture)
         row.addWidget(capture_btn)
 
-    # ------------------------------------------------------------------ paint / drag
+        settings_btn = QPushButton("S")
+        settings_btn.setFixedSize(28, 28)
+        settings_btn.setStyleSheet(
+            "QPushButton { background: rgba(255,255,255,20); color: white;"
+            " border: none; border-radius: 5px; font-size: 14px; }"
+            "QPushButton:hover { background: rgba(255,255,255,45); }"
+        )
+        settings_btn.clicked.connect(self._open_settings)
+        row.addWidget(settings_btn)
 
-    def moveEvent(self, event) -> None:
-        super().moveEvent(event)
-        self._settings.set("toolbar_x", self.x())
-        self._settings.set("toolbar_y", self.y())
+    def _open_settings(self) -> None:
+        dlg = ApiKeyDialog(self._settings.get("gemini_api_key") or "", self)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            self._settings.set("gemini_api_key", dlg.key())
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(28, 28, 28))
+        painter.end()
 
     def mousePressEvent(self, event) -> None:
         if event.button() == Qt.MouseButton.LeftButton:
@@ -212,9 +195,10 @@ class ToolbarWindow(QWidget):
             self.move(event.globalPosition().toPoint() - self._drag_pos)
 
     def mouseReleaseEvent(self, event) -> None:
-        self._dragging = False
-
-    # ------------------------------------------------------------------ capture flow
+        if self._dragging:
+            self._dragging = False
+            self._settings.set("toolbar_x", self.x())
+            self._settings.set("toolbar_y", self.y())
 
     def _start_capture(self) -> None:
         self._capture_win = ScreenCaptureWindow()
@@ -222,37 +206,27 @@ class ToolbarWindow(QWidget):
         self._capture_win.show()
 
     def _on_region(self, x: int, y: int, w: int, h: int) -> None:
-        for worker in (self._ocr_worker, self._trans_worker):
-            if worker is not None:
-                worker.blockSignals(True)
+        if self._worker:
+            self._worker.blockSignals(True)
 
-        # Auto-pick the side with the most available screen space
-        self._overlay.adjustSize()
-        side = _best_side(x, y, w, h, self._overlay.width(), self._overlay.height())
-        self._overlay.show_at_region(x, y, w, h, side)
+        self._panel.add_loading_card()
+        self._panel.show()
+        self._panel.raise_()
 
         from PIL import ImageGrab
-        dpr  = QApplication.primaryScreen().devicePixelRatio()
-        bbox = (int(x * dpr), int(y * dpr), int((x + w) * dpr), int((y + h) * dpr))
-        image = ImageGrab.grab(bbox=bbox)
+        dpr   = QApplication.primaryScreen().devicePixelRatio()
+        image = ImageGrab.grab(bbox=(
+            int(x * dpr), int(y * dpr),
+            int((x + w) * dpr), int((y + h) * dpr),
+        ))
 
-        src = self._src_combo.current_code()
-        tgt = self._tgt_combo.current_code()
-
-        self._ocr_worker = OcrWorker(image, src)
-        self._ocr_worker.ocr_done.connect(
-            lambda text: self._on_ocr_done(text, tgt)
+        api_key = self._settings.get("gemini_api_key") or ""
+        self._worker = GeminiWorker(
+            image,
+            self._src_combo.current_code(),
+            self._tgt_combo.current_code(),
+            api_key,
         )
-        self._ocr_worker.ocr_failed.connect(
-            lambda err: self._overlay.show_result(f"OCR error: {err}", False)
-        )
-        self._ocr_worker.start()
-
-    def _on_ocr_done(self, text: str, tgt: str) -> None:
-        if not text:
-            self._overlay.show_result("No text found", True)
-            return
-        src = self._src_combo.current_code()
-        self._trans_worker = TranslatorWorker(text, src, tgt)
-        self._trans_worker.translation_ready.connect(self._overlay.show_result)
-        self._trans_worker.start()
+        self._worker.result_ready.connect(self._panel.add_card)
+        self._worker.failed.connect(self._panel.add_error_card)
+        self._worker.start()
