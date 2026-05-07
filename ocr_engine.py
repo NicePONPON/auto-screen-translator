@@ -28,7 +28,7 @@ _reader_cache: dict = {}
 def get_model_dir() -> str:
     """Return (and create) the directory where EasyOCR stores model files."""
     appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-    path = os.path.join(appdata, "ocr_translator", "models")
+    path = os.path.join(appdata, "AutoScreenTranslator", "models")
     os.makedirs(path, exist_ok=True)
     return path
 
