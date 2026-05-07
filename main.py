@@ -3,14 +3,11 @@ import os
 import traceback
 import datetime
 
-# All errors are logged here because pythonw.exe has no console output
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# Embedded Python does not add the script directory to sys.path automatically.
-# Insert it so local modules (settings, toolbar, overlay, …) can be imported.
 if _APP_DIR not in sys.path:
     sys.path.insert(0, _APP_DIR)
-_LOG     = os.path.join(_APP_DIR, "error.log")
+
+_LOG = os.path.join(_APP_DIR, "error.log")
 
 
 def _log(msg: str) -> None:
@@ -21,7 +18,6 @@ def _log(msg: str) -> None:
         pass
 
 
-# ── SSL certs ────────────────────────────────────────────────────────────────
 try:
     import certifi
     os.environ["SSL_CERT_FILE"]      = certifi.where()
@@ -30,8 +26,6 @@ try:
 except ImportError as e:
     _log(f"certifi missing: {e}")
 
-# ── Qt platform plugin path ───────────────────────────────────────────────────
-# Without this, PyQt6 on embedded Python silently fails to create any windows.
 _plugin_path = os.path.join(
     _APP_DIR, "python", "Lib", "site-packages", "PyQt6", "Qt6", "plugins"
 )
@@ -39,9 +33,8 @@ if os.path.isdir(_plugin_path):
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _plugin_path
     _log(f"Qt plugin path: {_plugin_path}")
 else:
-    _log(f"WARNING: Qt plugin path not found at {_plugin_path}")
+    _log(f"WARNING: Qt plugin path not found: {_plugin_path}")
 
-# ── DPI awareness ─────────────────────────────────────────────────────────────
 if sys.platform == "win32":
     try:
         import ctypes
@@ -50,39 +43,16 @@ if sys.platform == "win32":
     except Exception as e:
         _log(f"DPI awareness skipped: {e}")
 
-# ── Main ──────────────────────────────────────────────────────────────────────
 try:
-    _log("Importing PyQt6...")
-    from PyQt6.QtWidgets import QApplication, QMessageBox
+    from PyQt6.QtWidgets import QApplication, QMessageBox, QDialog
     from PyQt6.QtCore import QTimer
     _log("PyQt6 OK")
 
     from settings import Settings
-    from overlay import OverlayWindow
+    from api_key_dialog import ApiKeyDialog
+    from translation_panel import TranslationPanel
     from toolbar import ToolbarWindow
-    _log("App modules OK")
-
-    def _place_and_show(toolbar: "ToolbarWindow", settings: "Settings") -> None:
-        screen = QApplication.primaryScreen().availableGeometry()
-        toolbar.adjustSize()
-        w, h = toolbar.width(), toolbar.height()
-        _log(f"Screen={screen.width()}x{screen.height()} toolbar={w}x{h}")
-
-        try:
-            x = int(settings.get("toolbar_x"))
-            y = int(settings.get("toolbar_y"))
-            if not (screen.left() <= x <= screen.right() - w and
-                    screen.top() <= y <= screen.bottom() - h):
-                raise ValueError("saved position off-screen")
-        except (TypeError, ValueError):
-            x = screen.center().x() - w // 2
-            y = screen.top() + 20
-
-        _log(f"Placing toolbar at ({x}, {y})")
-        toolbar.move(x, y)
-        toolbar.show()
-        toolbar.raise_()
-        _log("Toolbar shown OK")
+    _log("Modules OK")
 
     app = QApplication(sys.argv)
     app.setApplicationName("AutoScreenTranslator")
@@ -91,11 +61,58 @@ try:
     _log("QApplication OK")
 
     settings = Settings()
-    overlay  = OverlayWindow(settings)
-    toolbar  = ToolbarWindow(settings, overlay)
+
+    if not settings.get("gemini_api_key"):
+        _log("No API key - showing setup dialog")
+        dlg = ApiKeyDialog()
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            settings.set("gemini_api_key", dlg.key())
+
+    panel   = TranslationPanel(settings)
+    toolbar = ToolbarWindow(settings, panel)
     _log("Windows created OK")
 
-    QTimer.singleShot(150, lambda: _place_and_show(toolbar, settings))
+    def _place_and_show() -> None:
+        screen = QApplication.primaryScreen().availableGeometry()
+
+        # toolbar
+        toolbar.adjustSize()
+        tw, th = toolbar.width(), toolbar.height()
+        try:
+            tx = int(settings.get("toolbar_x"))
+            ty = int(settings.get("toolbar_y"))
+            if not (screen.left() <= tx <= screen.right() - tw and
+                    screen.top() <= ty <= screen.bottom() - th):
+                raise ValueError
+        except (TypeError, ValueError):
+            tx = screen.center().x() - tw // 2
+            ty = screen.top() + 20
+
+        toolbar.move(tx, ty)
+        toolbar.show()
+        toolbar.raise_()
+        _log(f"Toolbar at ({tx},{ty})")
+
+        # panel
+        pw = max(280, int(settings.get("panel_w") or 320))
+        ph = max(200, int(settings.get("panel_h") or 500))
+        try:
+            px = int(settings.get("panel_x"))
+            py = int(settings.get("panel_y"))
+            if not (screen.left() <= px <= screen.right() - pw and
+                    screen.top() <= py <= screen.bottom() - ph):
+                raise ValueError
+        except (TypeError, ValueError):
+            px = min(tx + tw + 10, screen.right() - pw)
+            py = ty
+
+        panel.resize(pw, ph)
+        panel.move(px, py)
+        panel.show()
+        panel.raise_()
+        _log(f"Panel at ({px},{py}) size {pw}x{ph}")
+
+    QTimer.singleShot(150, _place_and_show)
     _log("Entering event loop")
     sys.exit(app.exec())
 
@@ -106,9 +123,8 @@ except Exception:
         from PyQt6.QtWidgets import QApplication, QMessageBox
         _a = QApplication.instance() or QApplication(sys.argv)
         QMessageBox.critical(
-            None,
-            "Auto Screen Translator",
-            f"Failed to start. See error.log in the app folder.\n\n{err[:400]}"
+            None, "Auto Screen Translator",
+            f"Failed to start. See error.log in the app folder.\n\n{err[:500]}"
         )
     except Exception as e2:
         _log(f"Could not show error dialog: {e2}")
