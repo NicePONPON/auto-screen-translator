@@ -28,21 +28,49 @@ WIN_LANG_MAP: dict[str, str] = {
     "id":    "id",
 }
 
-_MIN_OCR_WIDTH = 1200  # upscale small captures before OCR
+_TARGET_WIDTH = 2400  # Windows OCR accuracy increases significantly above ~2000px
 
 
 def _preprocess(image):
-    from PIL import ImageEnhance, ImageFilter
-    if image.mode != "RGB":
+    from PIL import Image, ImageEnhance, ImageFilter, ImageOps
+    import numpy as np
+
+    # Flatten transparency onto white background
+    if image.mode == "RGBA":
+        bg = Image.new("RGB", image.size, (255, 255, 255))
+        bg.paste(image, mask=image.split()[3])
+        image = bg
+    elif image.mode != "RGB":
         image = image.convert("RGB")
+
+    # Upscale aggressively — Windows OCR is resolution-sensitive
     w, h = image.size
-    if w < _MIN_OCR_WIDTH:
-        scale = _MIN_OCR_WIDTH / w
-        from PIL import Image
+    if w < _TARGET_WIDTH:
+        scale = _TARGET_WIDTH / w
         image = image.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-    image = ImageEnhance.Contrast(image).enhance(1.5)
-    image = image.filter(ImageFilter.SHARPEN)
-    return image
+
+    # Work in grayscale from here
+    gray = image.convert("L")
+    arr = np.array(gray)
+
+    # Invert light-on-dark text so OCR always sees dark text on white
+    if arr.mean() < 127:
+        gray = ImageOps.invert(gray)
+
+    # Normalize contrast across the whole image
+    gray = ImageOps.autocontrast(gray, cutoff=1)
+
+    # Strong contrast boost
+    gray = ImageEnhance.Contrast(gray).enhance(2.5)
+
+    # Unsharp mask sharpens edges better than a simple sharpen filter
+    gray = gray.filter(ImageFilter.UnsharpMask(radius=1, percent=250, threshold=2))
+
+    # Pad by 30px white border — prevents edge characters being clipped by OCR
+    padded = Image.new("L", (gray.width + 60, gray.height + 60), 255)
+    padded.paste(gray, (30, 30))
+
+    return padded.convert("RGB")
 
 
 async def _win_ocr_async(image_path: str, lang_tag: str) -> str:

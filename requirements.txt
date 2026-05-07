@@ -3,3 +3,4 @@ Pillow>=10.0.0
 certifi>=2024.0.0
 deep-translator>=1.11.0
 winsdk>=1.0.0b10
+numpy>=1.24.0
