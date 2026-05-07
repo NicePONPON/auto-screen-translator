@@ -62,6 +62,7 @@ def main() -> None:
         "--collect-all", "torch",
         "--collect-all", "torchvision",
         "--collect-all", "cv2",
+        "--collect-all", "certifi",
         # Explicit hidden imports for torch internals used by EasyOCR
         "--hidden-import", "torch",
         "--hidden-import", "torchvision",

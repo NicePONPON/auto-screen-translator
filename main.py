@@ -1,4 +1,13 @@
 import sys
+import os
+
+# PyInstaller bundles don't include Windows system CA certificates, so SSL
+# connections (e.g. EasyOCR model downloads) fail with CERTIFICATE_VERIFY_FAILED.
+# Pointing Python at certifi's bundled CA store fixes this for all libraries.
+if getattr(sys, 'frozen', False):
+    import certifi
+    os.environ['SSL_CERT_FILE']      = certifi.where()
+    os.environ['REQUESTS_CA_BUNDLE'] = certifi.where()
 
 # SetProcessDpiAwareness(1) = System DPI Aware.
 # Must be called before QApplication is constructed so Qt receives
